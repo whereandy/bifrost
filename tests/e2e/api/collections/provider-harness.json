@@ -346506,6 +346506,815 @@
           }
         }
       ]
+    },
+    {
+      "name": "372. GenAI Interactions API as a typed route, native on Google providers, translated elsewhere (genai interactions typed)",
+      "description": "The Interactions API (POST /interactions, GET/DELETE /interactions/{id}, POST /interactions/{id}/cancel) is a typed GenAI route, not only a passthrough.\n\nGemini and Vertex get the caller body as it is and answer with Google bytes (native). Any other provider gets the request translated to Responses and its answer rendered as an Interaction, with an SSE stream in Interactions events. Agent-only fields on a translated request are refused.\n\n/v1/responses to gemini with previous_response_id (or background, or an agent) now runs on /interactions, and /v1/responses/{id}?provider=gemini reads the run. Vertex uses v1beta1 and needs service-account credentials.",
+      "item": [
+        {
+          "name": "372.1 gemini interactions create via /genai/v1beta/interactions (native) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3-flash-preview\",\n  \"input\": \"Reply with exactly: OK\",\n  \"store\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The typed route forwards a Gemini body as it is and returns Google's Interaction unchanged.",
+                  "var body = pm.response.text();",
+                  "pm.test('gemini create: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini create: served by gemini - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('gemini');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 600);",
+                  "pm.test('gemini create: an Interaction with a model_output step - genai interactions typed', function () {",
+                  "  pm.expect([\"completed\"], dump).to.include(j.status);",
+                  "  pm.expect(j.steps, dump).to.be.an('array');",
+                  "  pm.expect(j.steps.some(function (s) { return s && s.type === 'model_output'; }), dump).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.2 gemini interactions create stream via /genai/v1beta/interactions (native) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3-flash-preview\",\n  \"input\": \"Count from 1 to 5.\",\n  \"store\": false,\n  \"stream\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Google's own events are replayed once each, in Google's event:/data: framing, ending with its done frame.",
+                  "var body = pm.response.text();",
+                  "pm.test('gemini stream: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini stream: Interactions SSE framing - genai interactions typed', function () {",
+                  "  pm.expect(String(pm.response.headers.get('Content-Type')), 'content-type').to.include('text/event-stream');",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: interaction.created\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: step.delta\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: interaction.completed\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"data: [DONE]\");",
+                  "  pm.expect(body, 'no Responses events leak onto the Interactions stream').to.not.include('response.output_text.delta');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.3 gemini interactions create stored, producer for second turn, get and delete - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3-flash-preview\",\n  \"input\": \"Remember the number 42. Reply with exactly: OK\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.text();",
+                  "pm.test('gemini stored create: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini stored create: served by gemini - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('gemini');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 600);",
+                  "pm.test('gemini stored create: an Interaction with a model_output step - genai interactions typed', function () {",
+                  "  pm.expect([\"completed\"], dump).to.include(j.status);",
+                  "  pm.expect(j.steps, dump).to.be.an('array');",
+                  "  pm.expect(j.steps.some(function (s) { return s && s.type === 'model_output'; }), dump).to.eql(true);",
+                  "});",
+                  "pm.test('gemini stored create: the run has an id - genai interactions typed', function () { pm.expect(j.id, dump).to.be.a('string').and.not.empty; });",
+                  "pm.collectionVariables.set('h372GeminiInteractionId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.4 gemini interactions second turn with previous_interaction_id via /genai - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3-flash-preview\",\n  \"input\": \"What number did I ask you to remember? Reply with the number only.\",\n  \"previous_interaction_id\": \"{{h372GeminiInteractionId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The second turn names the first by id; Google loads the history, so the answer carries the number.",
+                  "var body = pm.response.text();",
+                  "pm.test('gemini second turn: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini second turn: served by gemini - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('gemini');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 600);",
+                  "pm.test('gemini second turn: an Interaction with a model_output step - genai interactions typed', function () {",
+                  "  pm.expect([\"completed\"], dump).to.include(j.status);",
+                  "  pm.expect(j.steps, dump).to.be.an('array');",
+                  "  pm.expect(j.steps.some(function (s) { return s && s.type === 'model_output'; }), dump).to.eql(true);",
+                  "});",
+                  "pm.test('gemini second turn: answer uses the stored turn - genai interactions typed', function () { pm.expect(JSON.stringify(j.steps), dump).to.include('42'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.5 gemini responses with previous_response_id via /v1/responses runs on interactions - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/responses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "responses"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini/gemini-3-flash-preview\",\n  \"input\": \"Repeat the number I asked you to remember. Number only.\",\n  \"previous_response_id\": \"{{h372GeminiInteractionId}}\",\n  \"max_output_tokens\": 200\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Before, /v1/responses to gemini sent previous_response_id to generateContent, which has no stored turns.",
+                  "// It now runs on /interactions with previous_interaction_id, and the response id is the interaction id.",
+                  "var body = pm.response.text();",
+                  "pm.test('gemini /v1/responses previous_response_id: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini /v1/responses previous_response_id: served by gemini - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('gemini');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 600);",
+                  "pm.test('gemini /v1/responses previous_response_id: Responses shape, answer from the stored turn - genai interactions typed', function () {",
+                  "  pm.expect(j.object, dump).to.eql('response');",
+                  "  pm.expect(j.id, dump).to.be.a('string').and.not.empty;",
+                  "  pm.expect(JSON.stringify(j.output), dump).to.include('42');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.6 gemini interactions get via /genai/v1beta/interactions/{id} - genai interactions typed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions/{{h372GeminiInteractionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions",
+                "{{h372GeminiInteractionId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.text();",
+                  "pm.test('gemini get: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini get: served by gemini - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('gemini');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "pm.test('gemini get: the stored run comes back - genai interactions typed', function () { pm.expect(j.id, body.slice(0, 400)).to.eql(pm.collectionVariables.get('h372GeminiInteractionId')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.7 gemini responses retrieve via /v1/responses/{id}?provider=gemini - genai interactions typed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/responses/{{h372GeminiInteractionId}}?provider=gemini",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "responses",
+                "{{h372GeminiInteractionId}}"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "gemini"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The Responses lifecycle reads a Gemini run from /interactions/{id}.",
+                  "var body = pm.response.text();",
+                  "pm.test('gemini /v1/responses retrieve: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "var j = pm.response.json() || {};",
+                  "pm.test('gemini /v1/responses retrieve: same id, Responses shape - genai interactions typed', function () {",
+                  "  pm.expect(j.id, body.slice(0, 400)).to.eql(pm.collectionVariables.get('h372GeminiInteractionId'));",
+                  "  pm.expect(j.object, body.slice(0, 400)).to.eql('response');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.8 gemini interactions delete via /genai/v1beta/interactions/{id} - genai interactions typed",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions/{{h372GeminiInteractionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions",
+                "{{h372GeminiInteractionId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.text();",
+                  "pm.test('gemini delete: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini delete: empty object like Google - genai interactions typed', function () { pm.expect(pm.response.json(), body).to.eql({}); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.9 gemini interactions create background, producer for cancel - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3-flash-preview\",\n  \"input\": \"Write a 600-word essay about rivers.\",\n  \"background\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.text();",
+                  "pm.test('gemini background create: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('gemini background create: served by gemini - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('gemini');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 400);",
+                  "pm.test('gemini background create: a run in progress or done - genai interactions typed', function () {",
+                  "  pm.expect(j.id, dump).to.be.a('string').and.not.empty;",
+                  "  pm.expect(['in_progress', 'completed'], dump).to.include(j.status);",
+                  "});",
+                  "pm.collectionVariables.set('h372GeminiBgInteractionId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.10 gemini interactions cancel via /genai/v1beta/interactions/{id}/cancel - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions/{{h372GeminiBgInteractionId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions",
+                "{{h372GeminiBgInteractionId}}",
+                "cancel"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A run that already finished cannot be cancelled; Google then answers 400, which is still its answer, not Bifrost's.",
+                  "var body = pm.response.text();",
+                  "pm.test('gemini cancel: reaches Google - genai interactions typed', function () {",
+                  "  pm.expect([200, 400], 'failed: ' + body.slice(0, 600)).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code !== 200) { pm.test('gemini cancel: refusal is about the run state - genai interactions typed', function () { pm.expect(body).to.not.include('unsupported'); }); return; }",
+                  "var j = pm.response.json() || {};",
+                  "pm.test('gemini cancel: run is cancelled or done - genai interactions typed', function () { pm.expect(['cancelled', 'completed'], body.slice(0, 400)).to.include(j.status); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.11 vertex interactions create via /genai/v1beta1 project path (native) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta1/projects/{{vertexProject}}/locations/global/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta1",
+                "projects",
+                "{{vertexProject}}",
+                "locations",
+                "global",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3.1-pro-preview\",\n  \"input\": \"Reply with exactly: OK\",\n  \"store\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Vertex serves Interactions under v1beta1 with OAuth; the key's project and region are used.",
+                  "var body = pm.response.text();",
+                  "pm.test('vertex create: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('vertex create: served by vertex - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('vertex');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 600);",
+                  "pm.test('vertex create: an Interaction with a model_output step - genai interactions typed', function () {",
+                  "  pm.expect([\"completed\"], dump).to.include(j.status);",
+                  "  pm.expect(j.steps, dump).to.be.an('array');",
+                  "  pm.expect(j.steps.some(function (s) { return s && s.type === 'model_output'; }), dump).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.12 vertex interactions create stream via /genai/v1beta1 project path (native) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta1/projects/{{vertexProject}}/locations/global/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta1",
+                "projects",
+                "{{vertexProject}}",
+                "locations",
+                "global",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gemini-3.1-pro-preview\",\n  \"input\": \"Count from 1 to 5.\",\n  \"store\": false,\n  \"stream\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.text();",
+                  "pm.test('vertex stream: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('vertex stream: Interactions SSE framing - genai interactions typed', function () {",
+                  "  pm.expect(String(pm.response.headers.get('Content-Type')), 'content-type').to.include('text/event-stream');",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: interaction.created\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: interaction.completed\");",
+                  "  pm.expect(body, 'no Responses events leak onto the Interactions stream').to.not.include('response.output_text.delta');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.13 openai gpt-4o-mini interactions create via /genai/v1beta/interactions (translated) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"openai/gpt-4o-mini\",\n  \"input\": \"Reply with exactly: OK\",\n  \"generation_config\": {\n    \"max_output_tokens\": 50\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Another provider gets the request as Responses; its answer is rendered back as an Interaction.",
+                  "var body = pm.response.text();",
+                  "pm.test('openai translated create: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('openai translated create: served by openai - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bifrost-provider'), body.slice(0, 400)).to.eql('openai');",
+                  "});",
+                  "var j = pm.response.json() || {};",
+                  "var dump = JSON.stringify(j).slice(0, 600);",
+                  "pm.test('openai translated create: an Interaction with a model_output step - genai interactions typed', function () {",
+                  "  pm.expect([\"completed\"], dump).to.include(j.status);",
+                  "  pm.expect(j.steps, dump).to.be.an('array');",
+                  "  pm.expect(j.steps.some(function (s) { return s && s.type === 'model_output'; }), dump).to.eql(true);",
+                  "});",
+                  "pm.test('openai translated create: Interaction shape, usage mapped - genai interactions typed', function () {",
+                  "  pm.expect(j.object, dump).to.eql('interaction');",
+                  "  pm.expect(j.usage && j.usage.total_tokens, dump).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.14 openai gpt-4o-mini interactions create stream via /genai/v1beta/interactions (translated) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"openai/gpt-4o-mini\",\n  \"input\": \"Count from 1 to 5.\",\n  \"stream\": true,\n  \"generation_config\": {\n    \"max_output_tokens\": 50\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.text();",
+                  "pm.test('openai translated stream: 200 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(200);",
+                  "});",
+                  "if (pm.response.code !== 200) { return; }",
+                  "pm.test('openai translated stream: Interactions SSE framing - genai interactions typed', function () {",
+                  "  pm.expect(String(pm.response.headers.get('Content-Type')), 'content-type').to.include('text/event-stream');",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: interaction.created\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: step.start\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: step.delta\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"event: interaction.completed\");",
+                  "  pm.expect(body, body.slice(0, 600)).to.include(\"data: [DONE]\");",
+                  "  pm.expect(body, 'no Responses events leak onto the Interactions stream').to.not.include('response.output_text.delta');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "372.15 [EXPECT-400] openai gpt-4o-mini interactions create with agent_config is refused (translated) - genai interactions typed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/genai/v1beta/interactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "genai",
+                "v1beta",
+                "interactions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"openai/gpt-4o-mini\",\n  \"input\": \"hi\",\n  \"agent_config\": {\n    \"type\": \"dynamic\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Agent-only fields have no Responses form; a translated request refuses them instead of dropping them.",
+                  "var body = pm.response.text();",
+                  "pm.test('openai translated agent_config: 400 - genai interactions typed', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + body.slice(0, 600)).to.eql(400);",
+                  "  pm.expect(body).to.include('agent_config');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

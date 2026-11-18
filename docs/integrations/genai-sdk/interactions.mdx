@@ -1,0 +1,106 @@
+---
+title: "Interactions API"
+description: "Call Google's Interactions API through Bifrost, on Gemini and Vertex or on any other provider, with stored turns, background runs and agents."
+icon: "comments"
+---
+
+## Overview
+
+Google's Interactions API keeps a conversation on Google's side. You send one turn, get back an interaction `id`, and name that id as `previous_interaction_id` on the next turn instead of resending the history. It also runs long jobs in the background and serves agents such as Deep Research.
+
+Bifrost serves it as a typed route under `/genai`. Governance, logging, cost tracking and fallbacks apply to every call.
+
+| Operation | Gemini path | Vertex path |
+|---|---|---|
+| Create | `POST /genai/v1beta/interactions` | `POST /genai/v1beta1/projects/{project}/locations/{location}/interactions` |
+| Get (`?stream=true` replays it) | `GET /genai/v1beta/interactions/{id}` | `GET .../interactions/{id}` |
+| Cancel a background run | `POST /genai/v1beta/interactions/{id}/cancel` | `POST .../interactions/{id}/cancel` |
+| Delete | `DELETE /genai/v1beta/interactions/{id}` | `DELETE .../interactions/{id}` |
+
+`/genai/v1/interactions` is accepted as well as `/v1beta`.
+
+## Which provider runs the request
+
+Bifrost picks the provider the same way it does for `generateContent`:
+
+1. A `provider/model` prefix on `model` (or `agent`), such as `openai/gpt-4o-mini`.
+2. The `x-model-provider` header.
+3. Vertex when the path names a project and location, or the token is a Google OAuth token (`Bearer ya29...`).
+4. Gemini otherwise.
+
+For a get, cancel or delete, which carry no model, add `?provider=<name>` when the run did not come from Gemini.
+
+**Gemini and Vertex.** Bifrost forwards your body to Google as you sent it and returns Google's response byte for byte, so every Interactions field works: agents, `agent_config`, `environment`, `webhook_config`, built-in tool steps and thought signatures. Bifrost only strips the provider prefix from `model` and removes its own `fallbacks` field. A stream is Google's event stream, ending with `event: done`.
+
+**Any other provider.** Bifrost converts the request to the Responses API, runs it on that provider, and renders the answer as an Interaction: model text as a `model_output` step, reasoning as a `thought` step, tool calls as `function_call` steps with status `requires_action`. A stream comes back as `interaction.created`, `step.start`, `step.delta`, `step.stop` and `interaction.completed` events. Fields only Google understands (`agent`, `agent_config`, `environment`, `environment_id`, `webhook_config`, `max_total_tokens`) return 400 on this path rather than being dropped. A fallback from Gemini to another provider takes this path automatically.
+
+## Examples
+
+<Tabs group="interactions">
+<Tab title="Python">
+
+```python
+from google import genai
+from google.genai.types import HttpOptions
+
+client = genai.Client(
+    api_key="<YOUR-BIFROST-VIRTUAL-KEY>",
+    http_options=HttpOptions(base_url="http://localhost:8080/genai"),
+)
+
+first = client.interactions.create(model="gemini-3-flash-preview", input="Remember the number 42.")
+second = client.interactions.create(
+    model="gemini-3-flash-preview",
+    input="Which number did I ask you to remember?",
+    previous_interaction_id=first.id,
+)
+print(second.output_text)
+
+# The same call on another provider, through the same SDK
+other = client.interactions.create(model="openai/gpt-4o-mini", input="Say hi")
+```
+
+</Tab>
+<Tab title="cURL">
+
+```bash
+curl http://localhost:8080/genai/v1beta/interactions \
+  -H "Content-Type: application/json" \
+  -H "x-bf-vk: <YOUR-BIFROST-VIRTUAL-KEY>" \
+  -d '{"model": "gemini-3-flash-preview", "input": "Remember the number 42."}'
+
+# Background Deep Research run, then poll it
+curl http://localhost:8080/genai/v1beta/interactions \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "deep-research-preview-04-2026", "input": "Survey river restoration projects in Europe.", "background": true}'
+curl http://localhost:8080/genai/v1beta/interactions/<id>
+```
+
+</Tab>
+</Tabs>
+
+The client's `Api-Revision` header goes upstream unchanged.
+
+## From the Responses API
+
+`POST /v1/responses` with a `gemini/` or `vertex/` model runs on Interactions instead of `generateContent` when the request needs something only Interactions has:
+
+- `previous_response_id`, sent as `previous_interaction_id`
+- `background: true`
+- an agent as the model, such as `gemini/deep-research-preview-04-2026`
+
+Every other Responses request keeps using `generateContent`. The response `id` is the interaction id, so `GET`, `DELETE` and `POST .../cancel` on `/v1/responses/{id}?provider=gemini` read, delete and cancel the run. Input items come from the run's own input steps.
+
+## Vertex
+
+Vertex serves the API under `v1beta1` and refuses API keys, so the Vertex key needs service-account credentials. Bifrost sends each call to the key's own project and region, whatever the path says. Google documents only the `global` location today, so a key pinned to a region may get Google's error for that region. Gemini models older than Gemini 3 are refused by Vertex Interactions.
+
+## Billing
+
+A run that finishes during the create is billed on the create, like any other request. Google stores a run by default and repeats its full usage on every read, so Bifrost never bills a get, a replayed stream or a cancel. A background run is billed once, when the first read finds it finished, under the request that created it. If nobody reads it again, Bifrost polls it with the key that created it. This is the same accounting [GenAI passthrough](/integrations/passthrough#interactions-and-agents) uses.
+
+## Limitations
+
+- Listing interactions (Vertex only) is not a typed route; use `/genai_passthrough`.
+- On the translated path, built-in tool steps (`google_search_call`, `code_execution_call` and the rest) have no Responses form. Gemini responses keep them under `provider_extra_fields.steps`.
+- `requires_continuation` runs keep their `continuation_token` under `provider_extra_fields`.
